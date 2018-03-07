@@ -1,10 +1,14 @@
-import numpy
 import sys
 import re
 import string
 import nltk
 import os
+import random
+import matplotlib.pyplot as plt
 from collections import Counter
+
+# Random seed to ensure results stay the same.
+random.seed(44339991231)
 
 # Function to get the total number of words in all reviews.
 def sum_words(counter):
@@ -15,19 +19,24 @@ def sum_words(counter):
 
 # Function which goes through both the pos and neg folder and stores all of the words in a Counter().
 def extract_corpus():
-    path = 'review_polarity/txt_sentoken/'
+    path = folder +'/txt_sentoken/'
+    print("Starting extraction")
 
-    sentence_concat = []
-    sentiment_inc = []
+    d_train = []
+    d_test = []
 
     for foldername in os.listdir(path):
 
         # Ignore the hidden file .DS_Store
         if foldername != '.DS_Store':
 
-            for filename in os.listdir(path + foldername):
+            # Read in training data
+            for filename in os.listdir(path + foldername + "/train"):
 
-                with open((path + foldername + "/" + filename), "r") as f:
+                with open((path + foldername + "/train/" + filename), "r") as f:
+
+                    sentence_concat = []
+
                     for line in f:
 
                         # strip the first sentence of any punctuation, and split according to lines.
@@ -36,28 +45,156 @@ def extract_corpus():
                         # add the normalized sentence to the list for concatonated sentences
                         sentence_concat.extend(normalized_line)
 
-            for elem in sentence_concat:
-                sentiment_inc.append((elem, foldername))
+                        # Add bigrams to the document vector as feature for improved accuracy
+                        sentence_concat.extend(nltk.bigrams(normalized_line, pad_left=True, pad_right=True))
 
-    return sentiment_inc
+                    # Add the length of the document as feature for improved accuracy
+                    d_counter = Counter(sentence_concat)
 
+                    # As sentence_concat contains both words and bigrams, exclude the bigrams from the word count.
+                    d_counter["$Length"] = sum([d_counter[term] for term in d_counter if (len(term) == 1)])
+                    d_train.append((Counter(d_counter), foldername))
 
-extracted_corpus = extract_corpus()
-only_words = [i[0] for i in extracted_corpus[:]]
-unigram = Counter(only_words)
+            # Read in testing data
+            for filename in os.listdir(path + foldername + "/test"):
 
-Pos_Weights = []
-Neg_Weights = []
+                with open((path + foldername + "/test/" + filename), "r") as f:
 
-for word_with_sentiment in extracted_corpus:
-    if word_with_sentiment[1] == 'pos':
-        Pos_Weights.append((word_with_sentiment[0], 0))
-    else:
-         Neg_Weights.append((word_with_sentiment[0], 0))
+                    sentence_concat = []
 
-print("No. of unique words: " + str(len(unigram)))
-print("No. of words in Pos Weight Vector: " + str(len(Pos_Weights)))
-print("No. of words in Neg Weight Vector: " + str(len(Neg_Weights)))
-print("No. of words in Counter(): " + str(sum_words(unigram)))
-print("Pos_Weights + Neg_Weights: " + str(len(Neg_Weights) + len(Pos_Weights)))
-print("Do weight vectors match? " + str(sum_words(unigram) == (len(Neg_Weights) + len(Pos_Weights))))
+                    for line in f:
+
+                        # strip the first sentence of any punctuation, and split according to lines.
+                        normalized_line = re.sub("[^\w']", " ", line.strip()).split()
+
+                        # add the normalized sentence to the list for concatonated sentences
+                        sentence_concat.extend(normalized_line)
+                        sentence_concat.extend(nltk.bigrams(normalized_line, pad_left=True, pad_right=True))
+
+                    d_counter = Counter(sentence_concat)
+                    d_counter["$Length"] = sum([d_counter[term] for term in d_counter if (len(term) == 1)])
+                    d_test.append((d_counter, foldername))
+
+    print("Finished extraction")
+    return d_train, d_test
+
+def train(d_train):
+    print("Starting training")
+    weights = Counter()
+    accuracies = []
+
+    # Counters to facilitate taking the average.
+    total_weights = Counter()
+    num_weight_updates = Counter()
+
+    #Multiple passes
+    for i in range(10):
+
+        # Shuffling of training data
+        random.shuffle(d_train)
+
+        for train_d in d_train:
+            score = 0.0
+
+            for word, counts in train_d[0].items():
+                score += counts * weights[word]
+
+            # Set of if-else statements to decide if the document was correctly classified
+            if score >= 0.0:
+                sentiment = "pos"
+            else:
+                sentiment = "neg"
+
+            if train_d[1] == sentiment:
+                success = True
+            else:
+                success = False
+
+            # If wrongly classified, update weights
+            if success == False:
+                if train_d[1] == "pos":
+                    for word in train_d[0]:
+                        weights[word] += (train_d[0][word])
+
+                        # Update sum of weights & count of weight updates for averaging
+                        total_weights[word] += weights[word]
+                        num_weight_updates[word] += 1
+
+                else:
+                    for word in train_d[0]:
+                        weights[word] -= (train_d[0][word])
+
+                        # Update sum of weights & count of weight updates for averaging
+                        total_weights[word] += weights[word]
+                        num_weight_updates[word] += 1
+
+        # Get the accuracy results for each iteration in order to plot the change of accuracy across iterations.
+        result = test(weights, d_test, total_weights, num_weight_updates)
+        accuracy = eval(result)
+        accuracies.append(accuracy)
+        print("Finished iteration number " + str(i + 1))
+
+    print("Finished training")
+    return weights, total_weights, num_weight_updates, accuracies
+
+def test(weights, d_test, total_weights, num_weight_updates):
+    print("Starting testing")
+    results = []
+
+    # Testing is essentially training without updating the weights and, instead, passing on
+    # whether the classifier was successful.
+    for test_d in d_test:
+        score = 0.0
+        for word, counts in test_d[0].items():
+            if num_weight_updates[word] != 0:
+                score += counts * (total_weights[word]/num_weight_updates[word])
+            else:
+                score += 0.0
+        if score >= 0.0:
+            sentiment = "pos"
+        else:
+            sentiment = "neg"
+
+        if test_d[1] == sentiment:
+            success = True
+        else:
+            success = False
+
+        results.append(success)
+
+    print("Finished testing")
+    return results
+
+# Function to calculate the accuracy of the perceptron
+def eval(results):
+    results_counter = Counter(results)
+    accuracy = results_counter[True]/(results_counter[True]+results_counter[False])
+    return (accuracy*100)
+
+# Function to plot the accuracy changes across iterations
+def plot(accuracies):
+    plt.plot(range(1, 11), accuracies)
+    plt.xlabel('Iteration No.')
+    plt.ylabel('Accuracy')
+    plt.xticks(range(1, 11))
+    plt.show()
+
+# Take the "review_polarity" for the console input.
+folder = sys.argv[1]
+
+# D train & D test= [(X, Y)], where X is BoW for Document and Y is sentiment
+d_train, d_test = extract_corpus()
+
+# Results from training
+weights, total_weights, num_weight_updates, accuracies = train(d_train)
+
+# Results from testing
+results = test(weights, d_test, total_weights, num_weight_updates)
+
+# Calculate the accuracy
+accuracy = eval(results)
+
+print("Final accuracy: " + str(accuracy) + "%")
+
+# Plot the graph
+plot(accuracies)
