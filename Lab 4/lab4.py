@@ -82,6 +82,7 @@ def train(d_train):
     print("Starting training")
     weights = Counter()
     accuracies = []
+    highest_weight = []
 
     # Counters to facilitate taking the average.
     total_weights = Counter()
@@ -132,10 +133,13 @@ def train(d_train):
         result = test(weights, d_test, total_weights, num_weight_updates)
         accuracy = eval(result)
         accuracies.append(accuracy)
+
+        highest_weight.append(weights.most_common(1))
+
         print("Finished iteration number " + str(i + 1))
 
     print("Finished training")
-    return weights, total_weights, num_weight_updates, accuracies
+    return weights, total_weights, num_weight_updates, accuracies, highest_weight
 
 def test(weights, d_test, total_weights, num_weight_updates):
     print("Starting testing")
@@ -186,7 +190,7 @@ folder = sys.argv[1]
 d_train, d_test = extract_corpus()
 
 # Results from training
-weights, total_weights, num_weight_updates, accuracies = train(d_train)
+weights, total_weights, num_weight_updates, accuracies, highest_weight = train(d_train)
 
 # Results from testing
 results = test(weights, d_test, total_weights, num_weight_updates)
@@ -195,6 +199,7 @@ results = test(weights, d_test, total_weights, num_weight_updates)
 accuracy = eval(results)
 
 print("Final accuracy: " + str(accuracy) + "%")
+print("Highest weights: " + str(highest_weight))
 
 # Plot the graph
 plot(accuracies)
