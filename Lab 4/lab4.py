@@ -99,6 +99,11 @@ def train(d_train):
             score = 0.0
 
             for word, counts in train_d[0].items():
+                print("Counts:")
+                print(counts)
+                print("Weight:")
+                print(weights[word])
+
                 score += counts * weights[word]
 
             # Set of if-else statements to decide if the document was correctly classified
